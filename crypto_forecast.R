@@ -7,6 +7,10 @@
 #
   library(keras)
 #
+# scales has functions to format dates in charts
+#
+  library(scales)
+#
 # rjson lets us convert model json to R to exract info
 #
   library(rjson)
@@ -18,6 +22,10 @@
 # zoo is used for smoothing (rollmean function)
 #
   library(zoo)
+#
+# dplyr for pipes
+#
+  library(dplyr)
 #
 # ggplot for plotting results
 #
@@ -461,6 +469,33 @@
 #
 #
 #
+  get_peak_generic <- function(data, smoothing = 3, 
+                       direction = "max") {
+    smooth_data <-
+      rollmean(data,
+               smoothing, 
+               align = c("center"),
+               fill = c("extend",
+                        "extend",
+                        "extend"))
+    if (direction == "max") {
+      peak <- max(which(smooth_data ==
+                                max(smooth_data)))
+    } else {
+      peak <- min(which(smooth_data ==
+                                min(smooth_data)))
+    }
+    return(peak)
+  }
+#
+#
+#
+#
+# end function get_peak_generic
+#
+#
+#
+#
   convert_model <- function(model_R) {
     mod_layers <- 
       character(length = length(model_R[["config"]][["layers"]]))
@@ -621,7 +656,7 @@
   init_units <- function() {
     unit_structures <- matrix(0, nrow = 100, ncol = 10)
 #    
-    unit_structures[1, ] <- rep(15, 10)
+    unit_structures[1, ] <- c(rep(15, 3), rep(0, 7))
 #
     return(unit_structures)
   }
@@ -718,7 +753,6 @@
 #
 #
 #
-  scale_factors <- c(-1, 1)
   experiment_records_total <- NULL
 #  
   train_data <- read.csv("bitcoin_history.csv",
@@ -726,19 +760,82 @@
                          skip = 1,
                          stringsAsFactors = FALSE)
 #
+  train_data %>%
+    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = Close)) +
+    geom_line(color = "blue") +
+    theme(axis.text.x = element_text(size = 12, hjust = 0.5, angle = 90)) +
+    theme(axis.title.x = element_text(size = 14)) +
+    scale_x_date(name = "", 
+                 labels = date_format("%Y-%m-%d")) +
+    theme(axis.text.y = element_text(size = 12)) +
+    theme(axis.title.y = element_text(size = 14)) +
+    scale_y_continuous(name = paste0("Closing Price"),
+                       labels = dollar_format()) +
+    theme(axis.title.y = element_text(margin = margin(r = 10))) +
+    ggtitle(paste0("Historical Bitcoin closing price")) +
+    theme(plot.title = element_text(size = 18, hjust = 0.5))
+#
+# zoom in; it appears we can focus on recent data and 
+# predict pretty well
+#
+  train_data %>%
+    filter(as.Date(Date, origin = '1899-12-30') > '2017-12-01') %>%
+    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = Close)) +
+    geom_line(color = "blue") +
+    theme(axis.text.x = element_text(size = 12, hjust = 0.5, angle = 90)) +
+    theme(axis.title.x = element_text(size = 14)) +
+    scale_x_date(name = "", 
+                 labels = date_format("%Y-%m-%d")) +
+    theme(axis.text.y = element_text(size = 12)) +
+    theme(axis.title.y = element_text(size = 14)) +
+    scale_y_continuous(name = paste0("Closing Price"),
+                       labels = dollar_format()) +
+    theme(axis.title.y = element_text(margin = margin(r = 10))) +
+    ggtitle(paste0("Historical Bitcoin closing price")) +
+    theme(plot.title = element_text(size = 18, hjust = 0.5))
+#
+# let's cut off the data at the first "clean" valley, ~ 2018-02-01
+#
+  start_train <- train_data %>%
+    filter(as.Date(Date, origin = '1899-12-30') > '2018-01-01' &
+             as.Date(Date, origin = '1899-12-30') < '2018-03-01') %>%
+    pull(Close) %>%
+    get_peak_generic(smoothing = 3, direction = "min")
+  start_train <- which(as.Date(train_data[, "Date"], 
+                               origin = '1899-12-30') ==
+                                 '2018-01-01') + start_train - 1
+  train_data <- train_data[start_train:nrow(train_data), ]
+#
+# look at autocorrelation
+# 
+  acf(train_data[, "Close"], type = "correlation", plot = TRUE)
+#
+# this shows that the closing price is highly self-correlated at
+# small lags; thus we can try to predict one week in advance 
+# with a simple 7-day lag of close, and keep the volume and date
+#
+# create lagged feature
+#
+  close_lag <- 7
+  lagged_data <- 
+    train_data[1:(nrow(train_data) - (close_lag)), ]
+  closing <- train_data[(close_lag + 1):nrow(train_data), "Close"]
+  train_data <- cbind(lagged_data, closing)
+#  
 # select features
 #
   keep_features <-
     which(colnames(train_data) %in%
-            c("Date", "Open", "High", 
-              "Low", "Close", "Volume"))
+            c("Date", "Close", "Volume", "closing"))
   train_data <- train_data[, keep_features]
+#
+  train_data_temp <- as.matrix(train_data)
 #
 # scale data
 #
-  train_data <- scale(train_data, center = TRUE, scale = TRUE)
-#  
-  train_data_temp <- as.matrix(train_data)
+  train_data_temp <- scale(train_data_temp)
+#
+# set up trials
 #
   experiment_factors <- get_experiment_factors()
 #
@@ -795,7 +892,7 @@
   train_val_splits <- c(0.75)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(0.000025)
+  learning_rates <- c(1, 0.5, 0.1, 0.01, 0.001)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
   decays <- c(0)
@@ -809,7 +906,7 @@
   par_list <- c(par_list, l1_factors = l1_factors, 
                 l2_factors = l2_factors)
 #  
-  batch_sizes_used <- c(32)
+  batch_sizes_used <- c(1)
   par_list <- c(par_list, batch_sizes_used = batch_sizes_used)
 #  
 # experiment loop
@@ -817,20 +914,29 @@
   time_stamp <- 
     paste0(as.character(Sys.time(), "%Y-%m-%d-%H-%M-%s"))
 #
+# configure callbacks
+#
+  callbacks <- NULL
+  change_threshold <- 0
+  patience <- 3
+#
 # configure ealy stopping
 #
-  stopping_var <- "val_acc"
-  change_threshold <- 0.0005
+  use_early_stopping <- FALSE
+  if (use_early_stopping) {
+    stopping_var <- "val_mean_absolute_percentage_error"
+    change_threshold <- 0.0000
 #
 # don't set paitence less than 3 or it can crash peak finding
 #
-  patience <- 3
-  par_list <- c(par_list, stopping_var = stopping_var, 
-                change_threshold = change_threshold, 
-                patience = patience)
-  callbacks <- list(callback_early_stopping(monitor = stopping_var,
-                                            min_delta = change_threshold,
-                                            patience = patience))
+    patience <- 3
+    par_list <- c(par_list, stopping_var = stopping_var, 
+                  change_threshold = change_threshold, 
+                  patience = patience)
+    callbacks <- list(callback_early_stopping(monitor = stopping_var,
+                                              min_delta = change_threshold,
+                                              patience = patience))
+  }
 #
 # configure tensorboard
 #
@@ -892,11 +998,11 @@
   boxplots <- TRUE
   save_results_fine <- TRUE
   save_results_summary <- TRUE
-  optimizer <- "sgd"
+  optimizer <- "RMSprop"
   run_date <- as.character(Sys.time(), "%Y-%m-%d")
 #
   configuration <- 
-    paste0("", 
+    paste0("initial trial using simple lagged data", 
            paste0(unique(activations), " "), "activations")
 #
 # construct a test set
@@ -928,12 +1034,13 @@
 #
 # split train into train and val and remove target columns
 #
+                      target_col <- which(colnames(train_data_temp) == "closing")
                       train_indices <- 
                         sample(1:nrow(train_data_temp),
                                train_val_split * nrow(train_data_temp))
-                      val_data <- train_data_temp[- train_indices, -c("Close")]
+                      val_data <- train_data_temp[- train_indices, - target_col]
                       train_data <- 
-                        train_data_temp[train_indices, -c("Close")]
+                        train_data_temp[train_indices, - target_col]
                       pass <- pass + 1
 #  
 # we have to reassign these variables because during plotting we
@@ -943,12 +1050,15 @@
                       x_train <- 
                         as.matrix(train_data)
                       x_test <- 
-                        as.matrix(test_data)
+                        as.matrix(test_data[, -target_col])
                       x_val <- 
                         as.matrix(val_data)
-                      y_train <- as.matrix(train_data_temp[train_indices, "Close"])
-                      y_test <- as.matrix(test_data[, -c("Close")])
-                      y_val <- as.matrix(train_data_temp[- train_indices, "Close"])
+                      y_train <- 
+                        as.matrix(train_data_temp[train_indices, target_col])
+                      y_test <- 
+                        as.matrix(test_data[, target_col])
+                      y_val <- 
+                        as.matrix(train_data_temp[- train_indices, target_col])
 #
                       input_data <- list(x_train)      
 #                      
@@ -959,7 +1069,8 @@
 # combine the input layers (note: for future use if we add categoriical data)
 # 
                       combined_inputs <-
-                        layer_concatenate(c(numerical_in))
+                        numerical_in
+#                        layer_concatenate(c(numerical_in))
 #
 # define first layer
 #                      
@@ -1031,7 +1142,7 @@
                         optimizer = 
                           optimizer_used,
                         loss = loss_function_used,
-                        metrics = "mean_squared_error"
+                        metrics = "mean_absolute_percentage_error"
                       )
 #  
                       history <- model %>% fit(
@@ -1200,11 +1311,17 @@
                             col = "darkgreen",
                             lwd = 0.5)
                       par(new = T)
+                      ylim <- c(max(0, 0.9 * min(min(history[["metrics"]][["acc"]]),
+                                                 min(history[["metrics"]][["val_acc"]]))),
+                                1.1 * max(max(history[["metrics"]][["acc"]]),
+                                          max(history[["metrics"]][["val_acc"]])))
+                      ylim <- c(floor(10 * ylim[1]) / 10,
+                                round(10 * ylim[2] / 10, 1))
                       plot(history[["metrics"]][["val_acc"]],
                            type = "l",
                            col = "red",
                            lwd = 0.5,
-                           ylim = c(0, 1),
+                           ylim = ylim,
                            ylab = "",
                            xaxt = "n",
                            xlab = "")
@@ -1219,7 +1336,7 @@
                       mtext(side = 4, 
                             line = 2.5, 
                             at = 0.5 + 0.07,
-                            "     / train error", 
+                            "     / train loss (mse)", 
                             col = "darkgreen")
                       mtext(side = 2, 
                             line = 2.5, 
@@ -1229,7 +1346,7 @@
                       mtext(side = 2, 
                             line = 2.5,
                             at = 0.5 + 0.07,
-                            "     / val acc", 
+                            "     / val accuracy", 
                             col = "red")
 #
 # store the models
@@ -1263,7 +1380,7 @@
     }
   }
 #  
-#  show_summary(par_list, experiment_records)
+  show_summary(par_list, experiment_records)
 #
   if (save_results_summary) {
     time_stamp <- 
