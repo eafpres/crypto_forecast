@@ -357,6 +357,7 @@
     dropout_scheme[1, ] <- rep(0, 10)
     dropout_scheme[2, ] <- rep(0.25, 10)
     dropout_scheme[3, ] <- rep(0.5, 10)
+    dropout_scheme[4, ] <- rep(0.1, 10)
 #
     return(dropout_scheme)
   }
@@ -375,6 +376,8 @@
     unit_structures[3, ] <- c(rep(25, 4), rep(0, 6))
     unit_structures[4, ] <- c(rep(35, 5), rep(0, 5))
     unit_structures[5, ] <- c(5, rep(0, 9))
+    unit_structures[6, ] <- c(rep(15, 4), rep(0, 6))
+    unit_structures[7, ] <- c(rep(15, 5), rep(0, 5))
 #
     return(unit_structures)
   }
@@ -576,6 +579,8 @@
 #
   centers <- apply(train_data_temp, 2, min)
   scales <- apply(train_data_temp, 2, max) - centers
+#  centers <- apply(train_data_temp, 2, mean)
+#  scales <- apply(train_data_temp, 2, sd)
   train_data_temp <- scale(train_data_temp,
                            center = centers,
                            scale = scales)
@@ -592,7 +597,7 @@
                          "softplus", "softsign",
                          "relu", "tanh")
 #  
-  activations <- rep(activations_avail[3], 10)
+  activations <- rep(activations_avail[9], 10)
   par_list <- list(activations = activations)
 #  
   loss_functions <- init_losses()
@@ -601,7 +606,7 @@
   par_list <- c(par_list, loss_function_used = loss_function_used)
 #
   unit_structures <- init_units()
-  which_units <- c(5, 2, 1)
+  which_units <- c(1, 6, 7)
   units_used <- NULL
 #  
   for (i in 1:length(which_units)) {
@@ -637,13 +642,13 @@
   train_val_splits <- c(0.85)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(0.1)
+  learning_rates <- c(0.05)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
   decays <- c(0)
   par_list <- c(par_list, decays = decays)
 #  
-  epochs_used <- c(125)
+  epochs_used <- c(200)
   par_list <- c(par_list, epochs_used = epochs_used)
 #
   l1_factors <- c(0.0)
@@ -668,14 +673,14 @@
 #
 # configure ealy stopping
 #
-  use_early_stopping <- TRUE
+  use_early_stopping <- FALSE
   if (use_early_stopping) {
     stopping_var <- "val_mean_absolute_error"
-    change_threshold <- 0.0001
+    change_threshold <- 0.00001
 #
 # don't set paitence less than 3 or it can crash peak finding
 #
-    patience <- 10
+    patience <- 20
     par_list <- c(par_list, stopping_var = stopping_var, 
                   change_threshold = change_threshold, 
                   patience = patience)
@@ -736,14 +741,14 @@
 #
 # initialize/configure for run
 #
-  replicates <- 2
+  replicates <- 3
   pass <- 0
   prior_pass <- 0
   decode_current_model <- TRUE
   boxplots <- TRUE
   save_results_fine <- FALSE
   save_results_summary <- FALSE
-  optimizer <- "RMSprop"
+  optimizer <- "sgd"
   run_date <- as.character(Sys.time(), "%Y-%m-%d")
 #
   configuration <- 
@@ -752,7 +757,7 @@
 #
 # construct a test set
 #
-  test_split <- 0.10
+  test_split <- 7 / nrow(train_data_temp)
   test_indices <- seq(floor(nrow(train_data_temp) * (1 - test_split)),
                       nrow(train_data_temp), 1)
   test_data <- train_data_temp[test_indices, ]
@@ -1028,19 +1033,21 @@
                            cex.main = 0.5,
                            font.main = 1)
                       par(mar = c(5, 4, 4, 4) + 0.1)
-                      ylim <- c(max(0, 0.9 * min(min(history[["metrics"]][["loss"]]),
-                                                 min(history[["metrics"]][["val_loss"]]))),
-                                1.1 * max(max(history[["metrics"]][["loss"]]),
-                                          max(history[["metrics"]][["val_loss"]])))
-                      ylim <- c(floor(10 * ylim[1]) / 10,
-                                round(10 * ylim[2] / 10, 1))
+                      ylim_1 <- 
+                        c(max(0, 0.9 * min(min(history[["metrics"]][["loss"]]),
+                                           min(history[["metrics"]][["val_loss"]]))),
+                          1.1 * max(max(history[["metrics"]][["loss"]]),
+                                    max(history[["metrics"]][["val_loss"]])))
+                      ylim_1 <- 
+                        c(floor(10 * ylim_1[1]) / 10,
+                          round(10 * ylim_1[2] / 10, 1))
                       plot(history[["metrics"]][["val_loss"]],
                            type = "l",
                            col = "blue",
                            lwd = 0.5,
                            yaxt = "n",
                            ylab = "",
-                           ylim = ylim,
+                           ylim = ylim_1,
                            xaxt = "n",
                            xlab = "epoch")
                       axis(side = 1, 
@@ -1053,17 +1060,19 @@
                             col = "darkgreen",
                             lwd = 0.5)
                       par(new = T)
-                      ylim <- c(max(0, 0.9 * min(min(history[["metrics"]][["mean_absolute_error"]]),
-                                                 min(history[["metrics"]][["val_mean_absolute_error"]]))),
-                                1.1 * max(max(history[["metrics"]][["mean_absolute_error"]]),
-                                          max(history[["metrics"]][["val_mean_absolute_error"]])))
-                      ylim <- c(floor(10 * ylim[1]) / 10,
-                                round(10 * ylim[2] / 10, 1))
+                      ylim_2 <- 
+                        c(max(0, 0.9 * min(min(history[["metrics"]][["mean_absolute_error"]]),
+                                           min(history[["metrics"]][["val_mean_absolute_error"]]))),
+                          1.1 * max(max(history[["metrics"]][["mean_absolute_error"]]),
+                                    max(history[["metrics"]][["val_mean_absolute_error"]])))
+                      ylim_2 <- 
+                        c(floor(10 * ylim_2[1]) / 10,
+                          round(10 * ylim_2[2] / 10, 1))
                       plot(history[["metrics"]][["val_mean_absolute_error"]],
                            type = "l",
                            col = "red",
                            lwd = 0.5,
-                           ylim = ylim,
+                           ylim = ylim_2,
                            ylab = "",
                            xaxt = "n",
                            xlab = "")
@@ -1073,21 +1082,25 @@
                             lwd = 0.5)
                       mtext(side = 4, 
                             line = 2.5, 
-                            at = 0.5 - 0.08, 
+                            at = (ylim_2[1] + ylim_2[2]) / 2 - 
+                              0.09 * (ylim_2[2] - ylim_2[1]), 
                             "val", col = "blue")
                       mtext(side = 4, 
                             line = 2.5, 
-                            at = 0.5 + 0.07,
+                            at = (ylim_2[1] + ylim_2[2]) / 2 + 
+                              0.08 * (ylim_2[2] - ylim_2[1]),
                             "     / train loss (mse)", 
                             col = "darkgreen")
                       mtext(side = 2, 
                             line = 2.5, 
-                            at = 0.5 - 0.07,
+                            at = (ylim_2[1] + ylim_2[2]) / 2 - 
+                              0.07 * (ylim_2[2] - ylim_2[1]),
                             "train", 
                             col = "purple")
                       mtext(side = 2, 
                             line = 2.5,
-                            at = 0.5 + 0.07,
+                            at = (ylim_2[1] + ylim_2[2]) / 2 + 
+                              0.07 * (ylim_2[2] - ylim_2[1]),
                             "     / val MAE", 
                             col = "red")
                     }
@@ -1121,8 +1134,6 @@
       paste0(as.character(Sys.time(), "%Y-%m-%d-%H-%M-%s"))
     write.csv(experiment_records, paste0(time_stamp,
                                          "_nn_experiments_summary.csv"))
-    write.csv(as.data.frame(submission_list), paste0(time_stamp,
-                                      "_nn_predictions_summary.csv"))
   }
 #
 # convert layer text to numeric for charting
