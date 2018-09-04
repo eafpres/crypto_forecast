@@ -32,42 +32,10 @@
   library(ggplot2)
 #
   get_metrics <- function(predictions, labels) {
-    predictions[predictions < 0.5] <- 0
-    predictions[predictions > 0.5] <- 1
-    predictions[predictions == 0.5] <-
-      sample(c(0, 1), 
-             length(predictions[predictions == 0.5]),
-             replace = TRUE)
-    accuracy <- length(which(predictions == labels)) /
-      length(labels)
-    tp <- length(which(predictions == labels &
-                         predictions == 1))
-    fp <- length(which(predictions != labels &
-                         predictions == 1))
-    tn <- length(which(predictions == labels &
-                         predictions == 0))
-    fn <- length(which(predictions != labels &
-                         predictions == 0))
-    if ((tp + fp) > 0) {
-      precision <- tp / (tp + fp)
-    } else {
-      precision <- 0
-    }
-    if ((tp + fn) > 0) {
-      recall <- tp / (tp + fn)
-    } else {
-      recall <- 0
-    }
-    if ((precision + recall) > 0) {
-      f1 <- 2 * (precision * recall) / (precision + recall)
-    } else {
-      f1 <- 0
-    }
-    metrics <- list(predictions = predictions, 
-                    accuracy = accuracy, 
-                    precision = precision, 
-                    recall = recall,
-                    f1 = f1)
+    error <- (labels - predictions)
+    abs_error <- abs(error)
+    MAE <- mean(abs_error)
+    metrics <- list(MAE = MAE)
     return(metrics)
   }
 #
@@ -105,10 +73,10 @@
     }
     numeric_cols <- c("pass", "change_threshold", "patience", "seed",
                       "l1_factor", "l2_factor", "learning_rate_1", 
-                      "decay_1", "dropout_scheme", 
-                      "train_accuracy", "val_accuracy", "test_accuracy",
-                      "best_epoch_val", "best_epoch_test", "best_init_epochs",
-                      "epochs", "batch_size", "train_val_split")
+                      "decay_1", "dropout_scheme", "epochs", 
+                      "train_MAE", "train_MAE_at_best_val", "val_MAE", 
+                      "best_epoch_val", "best_MAE_val", "test_MAE",
+                      "batch_size", "train_val_split")
     for (i in which(colnames(experiment_records) %in% numeric_cols)) {
       experiment_records[, i] <- as.numeric(experiment_records[, i])
     }
@@ -123,255 +91,8 @@
 #
 # 
 #  
-  plot_summary_stat <- function(experiment_records,
-                                exclude_below_train = 0.5,
-                                exclude_below_val = 0.5,
-                                exclude_below_test = 0.5) {
-#  
-# plot results
-#
-    configs <- unique(experiment_records[, "config"])
-#
-# look at val accuracy vs. train accuracty to see dependency
-#
-    bar_bars <- 40
-    hist_bars <- 50
-    experiment_records_cutoff <- 
-      experiment_records[experiment_records[, "val_accuracy"] >= 
-                           exclude_below_val &
-                           experiment_records[, "train_accuracy"] >= 
-                           exclude_below_train, ]
-    experiment_records_temp <- 
-      experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                  configs[1], ]
-    xlim <- 
-      c(floor(100 * 
-                0.95 * min(experiment_records_temp[, "train_accuracy"], 
-                           na.rm = TRUE)) / 100,
-        ceiling(100 * 
-                  1.05 * max(experiment_records_temp[, "train_accuracy"],
-                             na.rm = TRUE)) / 100)
-    ylim <- 
-      c(floor(100 * 0.95 * exclude_below_val) / 100, 1)
-    par(fig = c(0.2, 1, 0.2, 1))
-    plot(x = 
-           experiment_records_temp[, "train_accuracy"],
-         y = 
-           experiment_records_temp[, "val_accuracy"],
-         col = 1, pch = 1,
-         xaxt = "n", xlab = "",
-         yaxt = "n", ylab = "",
-         xlim = xlim, ylim = ylim,
-         main = "All results", 
-         cex.main = 1, 
-         font.main = 1)
-    if (length(configs) > 1) {
-      for (i in 2:length(configs)) {
-        experiment_records_temp<- 
-          experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                      configs[i], ]
-        points(x = 
-                 experiment_records_temp[, "train_accuracy"],
-               y = 
-                 experiment_records_temp[, "val_accuracy"],
-               col = i, pch = i)
-      }
-    }
-    par(fig = c(0.2, 1, 0, 0.55), new = TRUE)
-    hist(experiment_records_temp[, "train_accuracy"],
-         breaks = seq(xlim[1], xlim[2], 
-                      ((xlim[2] - xlim[1]) / hist_bars)), 
-         col = "lightblue",
-         yaxt = "n", ylab = "",
-         main = "",
-         xlab = "train accuracy")
-    test_hist <- 
-      hist(experiment_records_temp[, "val_accuracy"],
-           breaks = seq(ylim[1], ylim[2], 
-                        ((ylim[2] - ylim[1]) / bar_bars)),
-           plot = FALSE)
-    bar_labs <- numeric()
-    for (i in 1:(length(test_hist$breaks) - 1)) {
-      bar_labs[i] <- 
-        floor(100 * mean(test_hist$breaks[i + 1], 
-                         test_hist$breaks[i])) / 100
-    }
-    par(fig = c(0, 0.4, 0.2, 1), new = TRUE)
-    barplot(test_hist$counts, 
-            col = "lightblue", 
-            horiz = TRUE,
-            ylab = "", 
-            xlab = "", 
-            xaxt = "n", 
-            names.arg = as.character(bar_labs),
-            space = 0)
-    mtext("val accuracy", side = 2, line = 3)
-    par(fig = c(0, 1, 0, 1))
-#
-# look at test accuracy vs val accuracy to see generalization
-#
-    bar_bars <- 40
-    hist_bars <- 50
-    experiment_records_cutoff <- 
-      experiment_records[experiment_records[, "val_accuracy"] >= 
-                           exclude_below_val &
-                           experiment_records[, "test_accuracy"] >= 
-                           exclude_below_test, ]
-    experiment_records_temp <- 
-      experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                  configs[1], ]
-    xlim <- 
-      c(floor(100 * 
-                0.95 * min(experiment_records_temp[, "val_accuracy"], 
-                           na.rm = TRUE)) / 100,
-        ceiling(100 * 
-                  1.05 * max(experiment_records_temp[, "val_accuracy"],
-                             na.rm = TRUE)) / 100)
-    ylim <- 
-      c(floor(100 * 0.95 * exclude_below_test) / 100, 1)
-    par(fig = c(0.2, 1, 0.2, 1))
-    plot(x = 
-           experiment_records_temp[, "val_accuracy"],
-         y = 
-           experiment_records_temp[, "test_accuracy"],
-         col = 1, pch = 1,
-         xaxt = "n", xlab = "",
-         yaxt = "n", ylab = "",
-         xlim = xlim, ylim = ylim,
-         main = "All results", 
-         cex.main = 1, 
-         font.main = 1)
-    if (length(configs) > 1) {
-      for (i in 2:length(configs)) {
-        experiment_records_temp<- 
-          experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                      configs[i], ]
-        points(x = 
-                 experiment_records_temp[, "val_accuracy"],
-               y = 
-                 experiment_records_temp[, "test_accuracy"],
-               col = i, pch = i)
-      }
-    }
-    par(fig = c(0.2, 1, 0, 0.55), new = TRUE)
-    hist(experiment_records_temp[, "val_accuracy"],
-         breaks = seq(xlim[1], xlim[2], 
-                      ((xlim[2] - xlim[1]) / hist_bars)), 
-         col = "lightblue",
-         yaxt = "n", ylab = "",
-         main = "",
-         xlab = "val accuracy")
-    test_hist <- 
-      hist(experiment_records_temp[, "test_accuracy"],
-           breaks = seq(ylim[1], ylim[2], 
-                        ((ylim[2] - ylim[1]) / bar_bars)),
-           plot = FALSE)
-    bar_labs <- numeric()
-    for (i in 1:(length(test_hist$breaks) - 1)) {
-      bar_labs[i] <- 
-        floor(100 * mean(test_hist$breaks[i + 1], 
-                         test_hist$breaks[i])) / 100
-    }
-    par(fig = c(0, 0.4, 0.2, 1), new = TRUE)
-    barplot(test_hist$counts, 
-            col = "lightblue", 
-            horiz = TRUE,
-            ylab = "", 
-            xlab = "", 
-            xaxt = "n", 
-            names.arg = as.character(bar_labs),
-            space = 0)
-    mtext("test accuracy", side = 2, line = 3)
-    par(fig = c(0, 1, 0, 1))
-#
-# look at test f1 vs val f1 to see generalization
-#
-    bar_bars <- 40
-    hist_bars <- 50
-    experiment_records_cutoff <- 
-      experiment_records[experiment_records[, "val_f1"] >= 
-                           exclude_below_val &
-                           experiment_records[, "test_f1"] >= 
-                           exclude_below_test, ]
-    experiment_records_temp <- 
-      experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                  configs[1], ]
-    xlim <- 
-      c(floor(100 * 
-                0.95 * min(experiment_records_temp[, "val_f1"], 
-                           na.rm = TRUE)) / 100,
-        ceiling(100 * 
-                  1.05 * max(experiment_records_temp[, "val_f1"],
-                             na.rm = TRUE)) / 100)
-    ylim <- 
-      c(floor(100 * 0.95 * exclude_below_test) / 100, 1)
-    par(fig = c(0.2, 1, 0.2, 1))
-    plot(x = 
-           experiment_records_temp[, "val_f1"],
-         y = 
-           experiment_records_temp[, "test_f1"],
-         col = 1, pch = 1,
-         xaxt = "n", xlab = "",
-         yaxt = "n", ylab = "",
-         xlim = xlim, ylim = ylim,
-         main = "All results", 
-         cex.main = 1, 
-         font.main = 1)
-    if (length(configs) > 1) {
-      for (i in 2:length(configs)) {
-        experiment_records_temp <- 
-          experiment_records_cutoff[experiment_records_cutoff[, "config"] ==
-                                      configs[i], ]
-        points(x = 
-                 experiment_records_temp[, "val_f1"],
-               y = 
-                 experiment_records_temp[, "test_f1"],
-               col = i, pch = i)
-      }
-    }
-    par(fig = c(0.2, 1, 0, 0.55), new = TRUE)
-    hist(experiment_records_temp[, "val_f1"],
-         breaks = seq(xlim[1], xlim[2], 
-                      ((xlim[2] - xlim[1]) / hist_bars)), 
-         col = "lightblue",
-         yaxt = "n", ylab = "",
-         main = "",
-         xlab = "val f1")
-    test_hist <- 
-      hist(experiment_records_temp[, "test_f1"],
-           breaks = seq(ylim[1], ylim[2], 
-                        ((ylim[2] - ylim[1]) / bar_bars)),
-           plot = FALSE)
-    bar_labs <- numeric()
-    for (i in 1:(length(test_hist$breaks) - 1)) {
-      bar_labs[i] <- 
-        floor(100 * mean(test_hist$breaks[i + 1], 
-                         test_hist$breaks[i])) / 100
-    }
-    par(fig = c(0, 0.4, 0.2, 1), new = TRUE)
-    barplot(test_hist$counts, 
-            col = "lightblue", 
-            horiz = TRUE,
-            ylab = "", 
-            xlab = "", 
-            xaxt = "n", 
-            names.arg = as.character(bar_labs),
-            space = 0)
-    mtext("test f1", side = 2, line = 3)
-    par(fig = c(0, 1, 0, 1))
-  }
-#
-#
-#
-#
-# end function plot_summary_stat
-#
-#
-#
-#
-#
   boxplot_results <- function(experiment_records, 
-                              dep_var = "val_accuracy",
+                              dep_var = "val_MAE",
                               exclude_below = 0.5,
                               par_list) {
 #    
@@ -442,10 +163,10 @@
 #
 #
 #
-  get_peak <- function(history, smoothing = 3, 
+  get_peak <- function(history, metric, smoothing = 3, 
                        direction = "max") {
     history_smooth <-
-      rollmean(history[["metrics"]][["val_acc"]],
+      rollmean(history[["metrics"]][[metric]],
                smoothing, 
                align = c("center"),
                fill = c("extend",
@@ -542,9 +263,7 @@
         "l1_factor",
         "l2_factor",
         "learning_rate_1",
-        "learning_rate_2",
         "decay_1",
-        "decay_2",
         "dropout_scheme",
         "layer_1",
         "layer_2",
@@ -571,19 +290,12 @@
         "epochs",
         "batch_size",
         "train_val_split",
-        "train_accuracy",
-        "train_acc_at_best_val",
-        "val_accuracy",
-        "val_precision",
-        "val_recall",
-        "val_f1",
+        "train_MAE",
+        "train_MAE_at_best_val",
+        "val_MAE",
         "best_epoch_val",
-        "best_acc_val",
-        "test_accuracy",
-        "test_precision",
-        "test_recall",
-        "test_f1",
-        "best_init_epochs")
+        "best_MAE_val",
+        "test_MAE")
 #    
     return(experiment_factors)
   }
@@ -610,8 +322,8 @@
                     for (l2_factor in l2_factors) {
                       for (train_val_split in train_val_splits) {
                         pass <- pass + 1
-                        cat("pass ", pass, " val acc ", 
-                            experiment_records[pass, "val_accuracy"],
+                        cat("pass ", pass, " val MAE ", 
+                            experiment_records[pass, "val_MAE"],
                             " units ", units_used[unit_index, ],
                             " LR ", learning_rates[learning_rate_index], 
                             " L1 ", l1_factor, 
@@ -643,6 +355,7 @@
 #    
     dropout_scheme[1, ] <- rep(0, 10)
     dropout_scheme[2, ] <- rep(0.25, 10)
+    dropout_scheme[3, ] <- rep(0.5, 10)
 #
     return(dropout_scheme)
   }
@@ -657,6 +370,10 @@
     unit_structures <- matrix(0, nrow = 100, ncol = 10)
 #    
     unit_structures[1, ] <- c(rep(15, 3), rep(0, 7))
+    unit_structures[2, ] <- c(5, 3, rep(0, 8))
+    unit_structures[3, ] <- c(rep(25, 4), rep(0, 6))
+    unit_structures[4, ] <- c(rep(35, 5), rep(0, 5))
+    unit_structures[5, ] <- c(5, rep(0, 9))
 #
     return(unit_structures)
   }
@@ -673,7 +390,7 @@
     loss_functions <- character(length = 10)
 #
     loss_functions[1] <- "mean_absolute_error"
-    loss_functions[2] <- "mean_absolute_percentage_error"
+    loss_functions[2] <- "mean_absolute_error"
     loss_functions[3] <- "squared_hinge"
     loss_functions[4] <- "hinge"
     loss_functions[5] <- "categorical_hinge"
@@ -794,33 +511,56 @@
     ggtitle(paste0("Historical Bitcoin closing price")) +
     theme(plot.title = element_text(size = 18, hjust = 0.5))
 #
-# let's cut off the data at the first "clean" valley, ~ 2018-02-01
+# let's cut off the data ~15 days before the first "clean" valley
+#
+# this finds the first valley
 #
   start_train <- train_data %>%
     filter(as.Date(Date, origin = '1899-12-30') > '2018-01-01' &
              as.Date(Date, origin = '1899-12-30') < '2018-03-01') %>%
     pull(Close) %>%
     get_peak_generic(smoothing = 3, direction = "min")
+#
+# and we back up 15 days
+#
   start_train <- which(as.Date(train_data[, "Date"], 
                                origin = '1899-12-30') ==
-                                 '2018-01-01') + start_train - 1
+                                 '2018-01-01') + start_train - 1 - 15
   train_data <- train_data[start_train:nrow(train_data), ]
 #
 # look at autocorrelation
 # 
-  acf(train_data[, "Close"], type = "correlation", plot = TRUE)
+  acf(train_data[, "Close"], type = "correlation", plot = TRUE, lag.max = 100)
 #
 # this shows that the closing price is highly self-correlated at
-# small lags; thus we can try to predict one week in advance 
-# with a simple 7-day lag of close, and keep the volume and date
+# small lags and the correlation sharply decreases, then we see
+# a peak at about 57 days; let's try to use that
 #
 # create lagged feature
 #
-  close_lag <- 7
+  close_lag <- 57
   lagged_data <- 
     train_data[1:(nrow(train_data) - (close_lag)), ]
   closing <- train_data[(close_lag + 1):nrow(train_data), "Close"]
   train_data <- cbind(lagged_data, closing)
+#
+# see what this looks like
+#
+  train_data %>%
+    as_data_frame() %>%
+    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = closing)) +
+    geom_point() +
+    geom_line(aes(x = as.Date(Date, origin = '1899-12-30'), 
+                  y = Close),
+                  color = "red")
+#
+# this shows we are getting some of the correlation
+# between the lagged closing and the original Close data
+# but it is far from perfect
+# We may need to find some exogenous data to make the model
+# more robust, or consider an LSTM or ARIMA model
+#
+# let's build the simple model and see what happens
 #  
 # select features
 #
@@ -833,7 +573,11 @@
 #
 # scale data
 #
-  train_data_temp <- scale(train_data_temp)
+  centers <- apply(train_data_temp, 2, min)
+  scales <- apply(train_data_temp, 2, max) - centers
+  train_data_temp <- scale(train_data_temp,
+                           center = centers,
+                           scale = scales)
 #
 # set up trials
 #
@@ -856,7 +600,7 @@
   par_list <- c(par_list, loss_function_used = loss_function_used)
 #
   unit_structures <- init_units()
-  which_units <- c(1)
+  which_units <- c(5, 2, 1)
   units_used <- NULL
 #  
   for (i in 1:length(which_units)) {
@@ -889,20 +633,20 @@
 #  
 # overall optimization parameters
 #
-  train_val_splits <- c(0.75)
+  train_val_splits <- c(0.85)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(1, 0.5, 0.1, 0.01, 0.001)
+  learning_rates <- c(1, 0.5, 0.1)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
   decays <- c(0)
   par_list <- c(par_list, decays = decays)
 #  
-  epochs_used <- c(30)
+  epochs_used <- c(125)
   par_list <- c(par_list, epochs_used = epochs_used)
 #
-  l1_factors <- c(0.000)
-  l2_factors <- c(0.000)
+  l1_factors <- c(0.0)
+  l2_factors <- c(0.0)
   par_list <- c(par_list, l1_factors = l1_factors, 
                 l2_factors = l2_factors)
 #  
@@ -917,19 +661,20 @@
 # configure callbacks
 #
   callbacks <- NULL
+  stopping_var <- ""
   change_threshold <- 0
   patience <- 3
 #
 # configure ealy stopping
 #
-  use_early_stopping <- FALSE
+  use_early_stopping <- TRUE
   if (use_early_stopping) {
-    stopping_var <- "val_mean_absolute_percentage_error"
-    change_threshold <- 0.0000
+    stopping_var <- "val_mean_absolute_error"
+    change_threshold <- 0.0001
 #
 # don't set paitence less than 3 or it can crash peak finding
 #
-    patience <- 3
+    patience <- 10
     par_list <- c(par_list, stopping_var = stopping_var, 
                   change_threshold = change_threshold, 
                   patience = patience)
@@ -990,15 +735,14 @@
 #
 # initialize/configure for run
 #
-  replicates <- 1
+  replicates <- 2
   pass <- 0
   prior_pass <- 0
   decode_current_model <- TRUE
-  post_plots <- TRUE
   boxplots <- TRUE
-  save_results_fine <- TRUE
+  save_results_fine <- FALSE
   save_results_summary <- TRUE
-  optimizer <- "RMSprop"
+  optimizer <- "sgd"
   run_date <- as.character(Sys.time(), "%Y-%m-%d")
 #
   configuration <- 
@@ -1008,9 +752,8 @@
 # construct a test set
 #
   test_split <- 0.10
-  test_indices <- sample(seq(1, nrow(train_data_temp), 1),
-                         test_split * nrow(train_data_temp),
-                         replace = FALSE)
+  test_indices <- seq(floor(nrow(train_data_temp) * (1 - test_split)),
+                      nrow(train_data_temp), 1)
   test_data <- train_data_temp[test_indices, ]
   train_data_temp <- train_data_temp[- test_indices, ]
   for (trial in 1:replicates) {
@@ -1142,7 +885,7 @@
                         optimizer = 
                           optimizer_used,
                         loss = loss_function_used,
-                        metrics = "mean_absolute_percentage_error"
+                        metrics = "mean_absolute_error"
                       )
 #  
                       history <- model %>% fit(
@@ -1159,23 +902,33 @@
                         callbacks = callbacks
                       )
 #
+                      train_predictions <-
+                        predict(model, list(x_train))
+#
                       val_predictions <- 
                         predict(model, list(x_val))
                       val_metrics <- get_metrics(val_predictions, y_val)
-                      val_predictions <- val_metrics[[1]]
-                      val_accuracy <- val_metrics[[2]]
-                      val_precision <- val_metrics[[3]]
-                      val_recall <- val_metrics[[4]]
-                      val_f1 <- val_metrics[[5]]
+                      val_MAE <- val_metrics[[1]]
 #
                       test_predictions <- 
                         predict(model, list(x_test))
                       test_metrics <- get_metrics(test_predictions, y_test)
-                      test_predictions <- test_metrics[[1]]
-                      test_accuracy <- test_metrics[[2]]
-                      test_precision <- test_metrics[[3]]
-                      test_recall <- test_metrics[[4]]
-                      test_f1 <- test_metrics[[5]]
+                      test_MAE <- test_metrics[[1]]
+#
+                      x_summary <- rbind(cbind(x_train, data_src = rep("train", nrow(x_train))),
+                                         cbind(x_val, data_src = rep("val", nrow(x_val))),
+                                         cbind(x_test, data_src = rep("test", nrow(x_test))))
+                      x_summary <- as.matrix(x_summary[order(x_summary[, "Date"], decreasing = FALSE), ])
+                      summary_predictions <- data.frame(pred = predict(model, x_summary[, 1:3]))
+                      pred_summary <- as.data.frame(cbind(x_summary, summary_predictions))
+                      targets <- rbind(train_data_temp, test_data)[, "closing"]
+                      pred_summary <- as.data.frame(cbind(pred_summary, actual = targets))
+                      pred_plot <- pred_summary %>%
+                        ggplot(aes(x = Date, y = actual, color = data_src)) +
+                        geom_point() +
+                        geom_line(aes(x = Date, y = pred, group = 1))
+                      print(pred_plot)
+                      
 #
 # save the predictions for the test data
 #
@@ -1202,12 +955,12 @@
 #
 # find best epoch (so we can use later for retraining to optimum)
 #                    
-                      best_init_epochs <- get_peak(history, 
-                                                   smoothing = 3,
-                                                   direction = "max")
-                      best_epoch_val <- best_init_epochs
+                      best_epoch_val <- get_peak(history, 
+                                                 "val_mean_absolute_error",
+                                                 smoothing = 3,
+                                                 direction = "min")
 #                      
-                      max_epoch <- length(history[["metrics"]][["acc"]])
+                      max_epoch <- length(history[["metrics"]][["loss"]])
 #
                       experiment_record[pass - prior_pass, ]$date <-
                         run_date
@@ -1250,32 +1003,18 @@
                         batch_sizes_used[batch_size_index]
                       experiment_record[pass - prior_pass, ]$train_val_split <-
                         train_val_split
-                      experiment_record[pass - prior_pass, ]$train_accuracy <-
-                        history[["metrics"]][["acc"]][max_epoch]
-                      experiment_record[pass - prior_pass, ]$train_acc_at_best_val <-
-                        history[["metrics"]][["acc"]][best_epoch_val]
-                      experiment_record[pass - prior_pass, ]$val_accuracy <-
-                        history[["metrics"]][["val_acc"]][max_epoch]
-                      experiment_record[pass - prior_pass, ]$val_precision <-
-                        val_precision
-                      experiment_record[pass - prior_pass, ]$val_recall <-
-                        val_recall
-                      experiment_record[pass - prior_pass, ]$val_f1 <-
-                        val_f1
-                      experiment_record[pass - prior_pass, ]$best_acc_val <-
-                        history[["metrics"]][["val_acc"]][best_epoch_val]
+                      experiment_record[pass - prior_pass, ]$train_MAE <-
+                        history[["metrics"]][["mean_absolute_error"]][max_epoch]
+                      experiment_record[pass - prior_pass, ]$train_MAE_at_best_val <-
+                        history[["metrics"]][["mean_absolute_error"]][best_epoch_val]
+                      experiment_record[pass - prior_pass, ]$val_MAE <-
+                        history[["metrics"]][["val_mean_absolute_error"]][max_epoch]
                       experiment_record[pass - prior_pass, ]$best_epoch_val <-
                         best_epoch_val
-                      experiment_record[pass - prior_pass, ]$test_accuracy <-
-                        test_accuracy
-                      experiment_record[pass - prior_pass, ]$test_precision <-
-                        test_precision
-                      experiment_record[pass - prior_pass, ]$test_recall <-
-                        test_recall
-                      experiment_record[pass - prior_pass, ]$test_f1 <-
-                        test_f1
-                      experiment_record[pass - prior_pass, ]$best_init_epochs <-
-                        best_init_epochs
+                      experiment_record[pass - prior_pass, ]$best_MAE_val <-
+                        history[["metrics"]][["val_mean_absolute_error"]][best_epoch_val]
+                      experiment_record[pass - prior_pass, ]$test_MAE <-
+                        test_MAE
                       plot(1, 1, type = "l", axes = FALSE, 
                            cex.lab = 0.01, 
                            main = c(rep("\n", length(experiment_factors) / 2),
@@ -1311,13 +1050,13 @@
                             col = "darkgreen",
                             lwd = 0.5)
                       par(new = T)
-                      ylim <- c(max(0, 0.9 * min(min(history[["metrics"]][["acc"]]),
-                                                 min(history[["metrics"]][["val_acc"]]))),
-                                1.1 * max(max(history[["metrics"]][["acc"]]),
-                                          max(history[["metrics"]][["val_acc"]])))
+                      ylim <- c(max(0, 0.9 * min(min(history[["metrics"]][["mean_absolute_error"]]),
+                                                 min(history[["metrics"]][["val_mean_absolute_error"]]))),
+                                1.1 * max(max(history[["metrics"]][["mean_absolute_error"]]),
+                                          max(history[["metrics"]][["val_mean_absolute_error"]])))
                       ylim <- c(floor(10 * ylim[1]) / 10,
                                 round(10 * ylim[2] / 10, 1))
-                      plot(history[["metrics"]][["val_acc"]],
+                      plot(history[["metrics"]][["val_mean_absolute_error"]],
                            type = "l",
                            col = "red",
                            lwd = 0.5,
@@ -1326,7 +1065,7 @@
                            xaxt = "n",
                            xlab = "")
                       grid(lty = 1, lwd = 0.5)
-                      lines(c(history[["metrics"]][["acc"]]),
+                      lines(c(history[["metrics"]][["mean_absolute_error"]]),
                             col = "purple",
                             lwd = 0.5)
                       mtext(side = 4, 
@@ -1346,16 +1085,8 @@
                       mtext(side = 2, 
                             line = 2.5,
                             at = 0.5 + 0.07,
-                            "     / val accuracy", 
+                            "     / val MAE", 
                             col = "red")
-#
-# store the models
-# 
-                      if (pass == 1) {
-                        model_list <- list(model)
-                      } else {
-                        model_list <- c(model_list, list(model))
-                      }
                     }
                   }
                 }
@@ -1398,24 +1129,15 @@
   train_cutoff <- 0.5
   val_cutoff <- 0.5
   test_cutoff <- 0.5
-#  
-  if (post_plots) {
-    plot_summary_stat(experiment_records, 
-                      train_cutoff, val_cutoff, test_cutoff)
-  }
 #
   if (boxplots) {
     boxplot_results(experiment_records, 
-                    dep_var = "val_accuracy", 
+                    dep_var = "val_MAE", 
                     exclude_below = val_cutoff, 
                     par_list)
 #
     boxplot_results(experiment_records, 
-                    dep_var = "test_accuracy", 
-                    exclude_below = test_cutoff, 
-                    par_list)
-    boxplot_results(experiment_records, 
-                    dep_var = "test_f1", 
+                    dep_var = "test_MAE", 
                     exclude_below = test_cutoff, 
                     par_list)
   }
