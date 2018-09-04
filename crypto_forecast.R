@@ -73,7 +73,7 @@
     }
     numeric_cols <- c("pass", "change_threshold", "patience", "seed",
                       "l1_factor", "l2_factor", "learning_rate_1", 
-                      "decay_1", "dropout_scheme", "epochs", 
+                      "decay_1", "dropout_scheme","which_units",  "epochs", 
                       "train_MAE", "train_MAE_at_best_val", "val_MAE", 
                       "best_epoch_val", "best_MAE_val", "test_MAE",
                       "batch_size", "train_val_split")
@@ -136,7 +136,7 @@
     data_temp <- 
       experiment_records[experiment_records[, dep_var] >= exclude_below, ]
 #
-    box_plot_it(dep_var, "layer_14",
+    box_plot_it(dep_var, "which_units",
                 units_used, data_temp,
                 single_OK = TRUE)
     box_plot_it(dep_var, "dropout_scheme",
@@ -265,6 +265,7 @@
         "learning_rate_1",
         "decay_1",
         "dropout_scheme",
+        "which_units",
         "layer_1",
         "layer_2",
         "layer_3",
@@ -636,7 +637,7 @@
   train_val_splits <- c(0.85)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(1, 0.5, 0.1)
+  learning_rates <- c(0.1)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
   decays <- c(0)
@@ -741,8 +742,8 @@
   decode_current_model <- TRUE
   boxplots <- TRUE
   save_results_fine <- FALSE
-  save_results_summary <- TRUE
-  optimizer <- "sgd"
+  save_results_summary <- FALSE
+  optimizer <- "RMSprop"
   run_date <- as.character(Sys.time(), "%Y-%m-%d")
 #
   configuration <- 
@@ -988,6 +989,8 @@
                         decays[decay_index]
                       experiment_record[pass - prior_pass, ]$dropout_scheme <-
                         which_dropouts[dropout_index]
+                      experiment_record[pass - prior_pass, ]$which_units <-
+                        which_units[unit_index]
                       first_layer_col <- 
                         which(colnames(experiment_record) == "layer_1")
                       total_layers <- length(mod_layers)
@@ -1126,9 +1129,9 @@
 #
   make_layers_numeric(experiment_records, mod_layers)
 #
-  train_cutoff <- 0.5
-  val_cutoff <- 0.5
-  test_cutoff <- 0.5
+  train_cutoff <- 0.0
+  val_cutoff <- 0.0
+  test_cutoff <- 0.0
 #
   if (boxplots) {
     boxplot_results(experiment_records, 
