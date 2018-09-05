@@ -542,11 +542,28 @@
 #
 # create lagged feature
 #
-  close_lag <- 7
-  lagged_data <- 
-    train_data[1:(nrow(train_data) - (close_lag)), ]
-  closing <- train_data[(close_lag + 1):nrow(train_data), "Close"]
-  train_data <- cbind(lagged_data, closing)
+  lagged_data_7 <- 
+    train_data[51:(nrow(train_data) - 7), ]
+  lagged_data_57 <-
+    train_data[1:(nrow(train_data) - 57), ]
+  closing <- train_data[(57 + 1):nrow(train_data), "Close"]
+  dates <- train_data[(57 + 1):nrow(train_data), "Date"]
+  day <- factor(weekdays(as.Date(train_data[(57 + 1):nrow(train_data), 
+                                            "Date"], 
+                                 origin = '1899-12-30'),
+                         abbreviate = TRUE),
+                ordered = TRUE,
+                levels = c("Sun", "Mon", "Tue",
+                           "Wed", "Thu", "Fri",
+                           "Sat"))
+  train_data <- cbind(dates, 
+                      day,
+                      lagged_data_7[, c("Close", "Volume")], 
+                      lagged_data_57[, c("Close", "Volume")],
+                      closing)
+  colnames(train_data) <- 
+    c("Date", "Day", "Close_lag_7", "Vol_lag_7", 
+      "Close_lag_57", "Vol_lag_57", "closing")
 #
 # see what this looks like
 #
@@ -555,8 +572,11 @@
     ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = closing)) +
     geom_point() +
     geom_line(aes(x = as.Date(Date, origin = '1899-12-30'), 
-                  y = Close),
-                  color = "red")
+                  y = Close_lag_7),
+                  color = "red") +
+    geom_line(aes(x = as.Date(Date, origin = '1899-12-30'),
+                  y = Close_lag_57),
+              color = "blue")
 #
 # this shows we are getting a high degree of correlation
 # at this lag, as expected from the autocorelation analysys
@@ -566,8 +586,13 @@
 #
   keep_features <-
     which(colnames(train_data) %in%
-            c("Date", "Close", "Volume", "closing"))
+            c("Date", "Day", 
+              "Close_lag_7", "Vol_lag_7",
+              "Close_lag_57", "Vol_lag_57", 
+              "closing"))
   train_data <- train_data[, keep_features]
+  train_data[, "Day"] <- 
+    as.integer(train_data[, "Day"])
 #
   train_data_temp <- as.matrix(train_data)
 #
@@ -602,7 +627,7 @@
   par_list <- c(par_list, loss_function_used = loss_function_used)
 #
   unit_structures <- init_units()
-  which_units <- c(1, 6, 7)
+  which_units <- c(1)
   units_used <- NULL
 #  
   for (i in 1:length(which_units)) {
@@ -618,7 +643,7 @@
                 unit_passes = unit_passes)
 #  
   dropout_scheme <- init_dropouts()
-  which_dropouts <- c(1, 2, 3)
+  which_dropouts <- c(2)
   dropouts <- NULL
 #  
   for (i in 1:length(which_dropouts)) (
@@ -638,17 +663,17 @@
   train_val_splits <- c(0.85)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(0.5, 0.1, 0.05)
+  learning_rates <- c(0.05)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
-  decays <- c(0, 0.2)
+  decays <- c(0.2)
   par_list <- c(par_list, decays = decays)
 #  
-  epochs_used <- c(100)
+  epochs_used <- c(300)
   par_list <- c(par_list, epochs_used = epochs_used)
 #
-  l1_factors <- c(0.0, 0.2)
-  l2_factors <- c(0.0, 0.2)
+  l1_factors <- c(0.0)
+  l2_factors <- c(0.0)
   par_list <- c(par_list, l1_factors = l1_factors, 
                 l2_factors = l2_factors)
 #  
@@ -671,8 +696,8 @@
 #
   use_early_stopping <- TRUE
   if (use_early_stopping) {
-    stopping_var <- "val_mean_absolute_error"
-    change_threshold <- 0.000001
+    stopping_var <- "val_loss"
+    change_threshold <- 0.00001
 #
 # don't set paitence less than 3 or it can crash peak finding
 #
