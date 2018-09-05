@@ -542,7 +542,7 @@
 #
 # create lagged feature
 #
-  close_lag <- 57
+  close_lag <- 7
   lagged_data <- 
     train_data[1:(nrow(train_data) - (close_lag)), ]
   closing <- train_data[(close_lag + 1):nrow(train_data), "Close"]
@@ -558,12 +558,8 @@
                   y = Close),
                   color = "red")
 #
-# this shows we are getting some of the correlation
-# between the lagged closing and the original Close data
-# but it is far from perfect
-# We may need to find some exogenous data to make the model
-# more robust, or consider an LSTM or ARIMA model
-#
+# this shows we are getting a high degree of correlation
+# at this lag, as expected from the autocorelation analysys
 # let's build the simple model and see what happens
 #  
 # select features
@@ -622,7 +618,7 @@
                 unit_passes = unit_passes)
 #  
   dropout_scheme <- init_dropouts()
-  which_dropouts <- c(1)
+  which_dropouts <- c(1, 2, 3)
   dropouts <- NULL
 #  
   for (i in 1:length(which_dropouts)) (
@@ -642,17 +638,17 @@
   train_val_splits <- c(0.85)
   par_list <- c(par_list, train_val_splits = train_val_splits)
 #
-  learning_rates <- c(0.05)
+  learning_rates <- c(0.5, 0.1, 0.05)
   par_list <- c(par_list, learning_rates = learning_rates)
 #  
-  decays <- c(0)
+  decays <- c(0, 0.2)
   par_list <- c(par_list, decays = decays)
 #  
-  epochs_used <- c(200)
+  epochs_used <- c(100)
   par_list <- c(par_list, epochs_used = epochs_used)
 #
-  l1_factors <- c(0.0)
-  l2_factors <- c(0.0)
+  l1_factors <- c(0.0, 0.2)
+  l2_factors <- c(0.0, 0.2)
   par_list <- c(par_list, l1_factors = l1_factors, 
                 l2_factors = l2_factors)
 #  
@@ -673,20 +669,21 @@
 #
 # configure ealy stopping
 #
-  use_early_stopping <- FALSE
+  use_early_stopping <- TRUE
   if (use_early_stopping) {
     stopping_var <- "val_mean_absolute_error"
-    change_threshold <- 0.00001
+    change_threshold <- 0.000001
 #
 # don't set paitence less than 3 or it can crash peak finding
 #
-    patience <- 20
+    patience <- 10
     par_list <- c(par_list, stopping_var = stopping_var, 
                   change_threshold = change_threshold, 
                   patience = patience)
     callbacks <- list(callback_early_stopping(monitor = stopping_var,
                                               min_delta = change_threshold,
-                                              patience = patience))
+                                              patience = patience,
+                                              mode = "min"))
   }
 #
 # configure tensorboard
@@ -741,7 +738,7 @@
 #
 # initialize/configure for run
 #
-  replicates <- 3
+  replicates <- 1
   pass <- 0
   prior_pass <- 0
   decode_current_model <- TRUE
