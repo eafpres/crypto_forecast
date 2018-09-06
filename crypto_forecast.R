@@ -31,6 +31,14 @@
 #
   library(ggplot2)
 #
+# forecast gets correlation analysis etc.
+#
+  library(forecast)
+#
+# simputation allows easy imputing of missing values
+#
+  library(simputation)
+#
   get_metrics <- function(predictions, labels) {
     error <- (labels - predictions)
     abs_error <- abs(error)
@@ -473,16 +481,102 @@
 #
 #
 #
-#
-  experiment_records_total <- NULL
 #  
-  train_data <- read.csv("bitcoin_history.csv",
+# The goal of this analysis is to predict bitcon
+# closing price 7 days in advance
+# The appraoch we will take is two-fold
+# 1) Use another data set, in this case the nasdaq composite,
+#    and try to correlate lagged data to the bitcoin data
+# 2) Model the self correlation, trend, and periodic behavior of
+#    the bitcon data directly
+# The two parts will be combined into a neural network
+# model which acts as a non-linear regression model
+#
+# Note that there are more complex ways to approach
+# this problem if more resources are available
+# Some include:
+# Use bitcoin data from multiple exchanges in different time zones
+# Use social media data to model some large movements
+# Find additioanl exogenous features that can correlate at
+# useful lag times, such as correlating multiple crypto currencies
+# and finding one or more that lead bicoin by enough time
+# to be useful
+#
+  nasdaq <- read.csv("nasdaq.csv",
+                     header = TRUE,
+                     stringsAsFactors = FALSE)
+  
+  nasdaq <- nasdaq[order(nasdaq[, "Date"], decreasing = FALSE), ]
+  nasdaq <- nasdaq %>%
+    mutate(Date = as.Date(nasdaq[, "Date"], 
+                          origin = '1899-12-30')) 
+#
+# the nasdaq data omit weekends and holidays, wo
+# we'll just impute those so we have uniform data
+#
+  all_dates <- seq(min(nasdaq[, "Date"]), max(nasdaq[, "Date"]), 1)
+  interp_nasdaq <- 
+    as.data.frame(matrix(rep(NA, length(all_dates) * ncol(nasdaq)),
+                         nrow = length(all_dates), 
+                         ncol = ncol(nasdaq)))
+  colnames(interp_nasdaq) <- colnames(nasdaq)
+  have_data <- which(all_dates %in% nasdaq[, "Date"])
+  interp_nasdaq[, "Date"] <- all_dates
+  for (i in 2:ncol(interp_nasdaq)) {
+    interp_nasdaq[have_data, i] <- nasdaq[, i]
+    interp_nasdaq[, i] = na.approx(interp_nasdaq[, i])
+
+  }
+  nasdaq <- interp_nasdaq  %>%
+    filter(Date >= '2018-01-01')
+  nasdaq %>%
+    ggplot(aes(x = Date, y = Close)) +
+    geom_line(color = "blue") +
+    theme(axis.text.x = element_text(size = 12, hjust = 0.5, angle = 90)) +
+    theme(axis.title.x = element_text(size = 14)) +
+    scale_x_date(name = "", 
+                 labels = date_format("%Y-%m-%d")) +
+    theme(axis.text.y = element_text(size = 12)) +
+    theme(axis.title.y = element_text(size = 14)) +
+    scale_y_continuous(name = paste0("Closing Price"),
+                       labels = dollar_format()) +
+    theme(axis.title.y = element_text(margin = margin(r = 10))) +
+    ggtitle(paste0("Historical nasdaq composite closing price")) +
+    theme(plot.title = element_text(size = 18, hjust = 0.5))
+  nasdaq %>%
+    select(Close) %>%
+    Acf(lag.max = 60, 
+        plot = TRUE, 
+        main = "nasdaq")
+  nasdaq %>%
+    select(Close) %>%
+    Pacf(lag.max = 60, 
+         plot = TRUE, 
+         ylim = c(-0.2, 1), 
+         main = "nasdaq")
+  nasdaq %>%
+    select(Volume, Close) %>%
+    Pacf(lag.max = 60, 
+         plot = TRUE)
+#
+# From this we see that, as exeptet, the closing price
+# is highly self-correlated at low lags, which is not 
+# useful in this analysis, however from the Pacf we 
+# see there is a correlation at 58 days, so we can try to use
+# that to further analyze
+# it is also evident there are correlations between volume
+# and closing price, so we may be able to leverage that
+#  
+  bitcoin_data <- read.csv("bitcoin_history.csv",
                          header = TRUE, 
                          skip = 1,
                          stringsAsFactors = FALSE)
-#
-  train_data %>%
-    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = Close)) +
+  bitcoin_data <- bitcoin_data %>%
+    mutate(Date = as.Date(bitcoin_data[, "Date"], 
+                                  origin = '1899-12-30')) %>%
+    filter(Date >= '2018-01-01')
+  bitcoin_data %>%
+    ggplot(aes(x = Date, y = Close)) +
     geom_line(color = "blue") +
     theme(axis.text.x = element_text(size = 12, hjust = 0.5, angle = 90)) +
     theme(axis.title.x = element_text(size = 14)) +
@@ -495,92 +589,266 @@
     theme(axis.title.y = element_text(margin = margin(r = 10))) +
     ggtitle(paste0("Historical Bitcoin closing price")) +
     theme(plot.title = element_text(size = 18, hjust = 0.5))
+  bitcoin_data %>%
+    select(Close) %>%
+    Acf(lag.max = 60, 
+        plot = TRUE, 
+        main = "bitcoin data", 
+        ylim = c(-0.2, 1))
+  bitcoin_data %>%
+    select(Close) %>%
+    Acf(lag.max = 60, 
+        plot = TRUE, 
+        main = "bitcoin data", 
+        ylim = c(-0.2, 1), 
+        xlim = c(40, 60))
+  bitcoin_data %>%
+    select(Close) %>%
+    Pacf(lag.max = 60, 
+         plot = TRUE, 
+         ylim = c(-0.2, 1), 
+         main = "bitcoin data")
+  Ccf(bitcoin_data[, "Volume"], 
+      bitcoin_data[, "Close"], 
+      lag.max = 60, 
+      plot = TRUE,
+      main = "bitcoin data")
+  bitcoin_data %>%
+    select(Volume, Close) %>%
+    Pacf(lag.max = 60,
+         plot = TRUE)
 #
-# zoom in; it appears we can focus on recent data and 
-# predict pretty well
-#
-  train_data %>%
-    filter(as.Date(Date, origin = '1899-12-30') > '2017-12-01') %>%
-    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = Close)) +
-    geom_line(color = "blue") +
-    theme(axis.text.x = element_text(size = 12, hjust = 0.5, angle = 90)) +
-    theme(axis.title.x = element_text(size = 14)) +
-    scale_x_date(name = "", 
-                 labels = date_format("%Y-%m-%d")) +
-    theme(axis.text.y = element_text(size = 12)) +
-    theme(axis.title.y = element_text(size = 14)) +
-    scale_y_continuous(name = paste0("Closing Price"),
-                       labels = dollar_format()) +
-    theme(axis.title.y = element_text(margin = margin(r = 10))) +
-    ggtitle(paste0("Historical Bitcoin closing price")) +
-    theme(plot.title = element_text(size = 18, hjust = 0.5))
-#
-# let's cut off the data ~15 days before the first "clean" valley
-#
-# this finds the first valley
-#
-  start_train <- train_data %>%
-    filter(as.Date(Date, origin = '1899-12-30') > '2018-01-01' &
-             as.Date(Date, origin = '1899-12-30') < '2018-03-01') %>%
-    pull(Close) %>%
-    get_peak_generic(smoothing = 3, direction = "min")
-#
-# and we back up 15 days
-#
-  start_train <- which(as.Date(train_data[, "Date"], 
-                               origin = '1899-12-30') ==
-                                 '2018-01-01') + start_train - 1 - 15
-  train_data <- train_data[start_train:nrow(train_data), ]
-#
-# look at autocorrelation
+# From this we see that, as exepcted, the closing price
+# is highly self-correlated at low lags, which is not 
+# useful in this analysis.
+# In this case, there does appear to be a self-correlation at 
+# 45 days, which we can attempt to use to create lagged
+# bitcoining data
+# From the Pacf we see taht there is a significant 
+# negative correlation at 20 days, which we might 
+# interprete as a rebound effect of some sort, so we can 
+# include a 20-day lagged feature in the training data
+# From the CCF for Volume & Close, we see the maximum
+# correlation  at 0 lag but correlations at bot +/- 45 days
+# so we could use lagged Volume as another predictor
 # 
-  acf(train_data[, "Close"], type = "correlation", plot = TRUE, lag.max = 100)
+# It appears we should focus on recent data 
+# given the huge spike that is competely different from
+# recent behavior.  We'll try working with only 2018 data.
 #
-# this shows that the closing price is highly self-correlated at
-# small lags and the correlation sharply decreases, then we see
-# a peak at about 57 days; let's try to use that
+  start_date <- as.Date('2018-01-01')
+  bitcoin_data <- bitcoin_data %>%
+    filter(Date >= start_date)
+#  
+# here we shift the start of nasdaq to the same as bitcoin
+# then truncate to an even multiple of the main frequency
+# in order to not have the time series decomp wrap around
 #
-# create lagged feature
+  nasdaq_acf <- 58
+  nasdaq <- nasdaq %>%
+    filter(Date >= start_date)
+  nasdaq <- nasdaq[1:(nrow(nasdaq) - (nrow(nasdaq) %% nasdaq_acf)), ]
+  first_day <- 1
+  first_block <- 1
+  last_day <- (nrow(nasdaq) - (first_day - 1)) %% nasdaq_acf
+  last_block <- (nrow(nasdaq) + (nasdaq_acf - last_day)) / nasdaq_acf
+#  
+  nasdaq_ts <- nasdaq %>%
+    select(Close) %>%
+    ts(start = c(first_block, first_day), 
+       end = c(last_block, last_day), frequency = nasdaq_acf)
+  nasdaq_time_analysis <- decompose(nasdaq_ts, type = "additive")
+  plot(nasdaq_time_analysis)
+  na.omit(as.numeric(nasdaq_time_analysis[["trend"]])) %>%
+    Acf(type = "correlation", lag.max = 180, plot = TRUE,
+        main = "nasdaq trend")
+  na.omit(as.numeric(nasdaq_time_analysis[["seasonal"]])) %>%
+    Acf(type = "correlation", lag.max = 180, plot = TRUE,
+        main = "nasdaq seasonal")
 #
-  lagged_data_7 <- 
-    train_data[51:(nrow(train_data) - 7), ]
-  lagged_data_57 <-
-    train_data[1:(nrow(train_data) - 57), ]
-  closing <- train_data[(57 + 1):nrow(train_data), "Close"]
-  dates <- train_data[(57 + 1):nrow(train_data), "Date"]
-  day <- factor(weekdays(as.Date(train_data[(57 + 1):nrow(train_data), 
-                                            "Date"], 
-                                 origin = '1899-12-30'),
-                         abbreviate = TRUE),
-                ordered = TRUE,
-                levels = c("Sun", "Mon", "Tue",
-                           "Wed", "Thu", "Fri",
-                           "Sat"))
-  train_data <- cbind(dates, 
-                      day,
-                      lagged_data_7[, c("Close", "Volume")], 
-                      lagged_data_57[, c("Close", "Volume")],
-                      closing)
-  colnames(train_data) <- 
-    c("Date", "Day", "Close_lag_7", "Vol_lag_7", 
-      "Close_lag_57", "Vol_lag_57", "closing")
+# Summarizing what we know about the nasdaq data,
+# it is self-correlated at 58 days, using that we can extract
+# a seasonal component that accounts for about 350 points
+# of varition in the 58 day cycle, which is not bad
+# We also know we could correlate the closing to Volume
+# at a number of periods if that were useful generating
+# predictions of the closing to use as a predictor for 
+# the training data
+#  
+# perform similar analysis on bitcoin using its acf self-correlation
 #
-# see what this looks like
+  bitcoin_acf <- 45
+  bitcoin_data <- bitcoin_data[1:(nrow(bitcoin_data) - 
+                                (nrow(bitcoin_data) %% bitcoin_acf)), ]
+  first_day <- 1
+  first_block <- 1
+  last_day <- (nrow(bitcoin_data) - (first_day - 1)) %% bitcoin_acf
+  last_block <- (nrow(bitcoin_data) + (bitcoin_acf - last_day)) / bitcoin_acf
+  bitcoin_ts <- bitcoin_data %>%
+    select(Close) %>%
+    ts(start = c(first_block, first_day), 
+       end = c(last_block, last_day), frequency = bitcoin_acf)
+  bitcoin_time_analysis <- decompose(bitcoin_ts, type = "additive")
+  plot(bitcoin_time_analysis)
+  na.omit(as.numeric(bitcoin_time_analysis[["trend"]])) %>%
+    Acf(type = "correlation", lag.max = 180, plot = TRUE, 
+        main = "bitcoin data trend")
+  na.omit(as.numeric(bitcoin_time_analysis[["seasonal"]])) %>%
+    Acf(type = "correlation", lag.max = 180, plot = TRUE,
+        main = "bitcoin data seasonal")
 #
-  train_data %>%
-    as_data_frame() %>%
-    ggplot(aes(x = as.Date(Date, origin = '1899-12-30'), y = closing)) +
-    geom_point() +
-    geom_line(aes(x = as.Date(Date, origin = '1899-12-30'), 
-                  y = Close_lag_7),
-                  color = "red") +
-    geom_line(aes(x = as.Date(Date, origin = '1899-12-30'),
-                  y = Close_lag_57),
-              color = "blue")
+# Summarizing what we know about the bitcoin data,
+# It is self correlated at 45 days and using that we
+# can extract a seasonal component that accounts for 1000 points
+# of variation in the 45 day period.  For most recent data,
+# that is very significant, so we should be able to use that
+# as a predictor
+# The trend, is somewhat of an expnential decay in the recent
+# period.  There is negative self-correlation in the trend
+# at ~ 135 days which we could try to leverage, but that
+# may not be that useful
 #
-# this shows we are getting a high degree of correlation
-# at this lag, as expected from the autocorelation analysys
-# let's build the simple model and see what happens
+# So we can begin by modeling the seasonal component using
+# fitted sine/cosines, and include that as a predictor,
+# as well as the self-correlated data at a 45 day lag period,
+# and an exponential fit to predict the trend
+#
+# finally, look at cross correlation of nasdaq and bitcoin 
+# to understand correlation directly between the 2 series
+# to see if we can leverage the nasdaq data
+#
+# we cut off the negative lags as these represent
+# where the bitcoin data in the past correlats to nasdaq
+# in the future which is not useful to us here
+#
+  Ccf(bitcoin_data[, "Close"], nasdaq[, "Close"],
+      plot = TRUE, 
+      lag.max = 45,
+      xlim = c(0, 45),
+      main = "bitcoin Close vs. nasdaq Close")
+  Ccf(bitcoin_data[, "Close"], nasdaq[, "Volume"],
+      plot = TRUE,
+      lag.max = 45,
+      xlim = c(0, 45),
+      main = "bitcoin Close vs. nasdaq Volume")
+  Ccf(bitcoin_data[, "Volume"], nasdaq[, "Volume"],
+      plot = TRUE,
+      lag.max = 45,
+      xlim = c(0, 45),
+      main = "bitcoin Volume vs. nasdaq Volume")
+#
+# from this analysis we can draw some conclusions
+#
+# 1. Both the nasdaq data and the bitcoin data for the 
+#    recent period show a clear periodic cycle, but
+#    the detailed patterns are different and out of phase.
+#    We will include a model of the bitcoin seasonality
+#    as a predictor.
+# 2. There is a strong negative correlation between nasdaq
+#    close and bitcoin close, at low lags.  We can either
+#    attempt to use 7 day lag to predict the 1 week ahead
+#    for bitcoin, or we could leverage the self-correlation
+#    of the nasdaq close to predict future nasdaq, then use that
+#    at the optimal lag of 5 days.  We will start with the 
+#    simpler case of lagging nasdaq close 7 days
+# 3. There is a nearly significant correlation between
+#    bitcoin close and nasdaq volume at 32 days which we
+#    can include in the model.  We will include this initially.
+# 4. The trends for the two series are completely different
+#    therefore we likely cannot use the nasdaq trend to
+#    predict the long term trend of bitcoin, but it appears
+#    we could model the bitcon trend as an exponential decay
+#    in the short term, and use that as a predictor.
+#  
+# build time-based features for model
+#
+# build a sine/cosine series model for the bitcon seasonality
+# 
+  day_series <- seq(1, length(bitcoin_time_analysis[["seasonal"]]), 1)
+  sin_45 <- sin(2 * pi * day_series / 45)
+  cos_45 <- cos(2 * pi * day_series / 45)
+  sin_30 <- sin(2 * pi * day_series / 30)
+  cos_30 <- sin(2 * pi * day_series / 30)
+  sin_22.5 <- sin(2 * pi * day_series / 22.5)
+  cos_22.5 <- cos(2 * pi * day_series / 22.5)
+  sin_15 <- sin(2 * pi * day_series / 15)
+  cos_15 <- cos(2 * pi * day_series / 15)
+  sin_11.25 <- sin(2 * pi * day_series / 11.25)
+  cos_11.25 <- cos(2 * pi * day_series / 11.25)
+  bitcoin_seasonal <- bitcoin_time_analysis[["seasonal"]]
+  bitcoin_seasonal <- as.data.frame(cbind(day_series,
+                                        bitcoin_seasonal,
+                                        sin_45,
+                                        cos_45, 
+                                        sin_30,
+                                        cos_30,
+                                        sin_22.5,
+                                        cos_22.5,
+                                        sin_15,
+                                        cos_15,
+                                        sin_11.25,
+                                        cos_11.25))
+  bitcoin_seasonal_model <- lm(bitcoin_seasonal ~ . - day_series, 
+                             data = bitcoin_seasonal)
+  bitcoin_seasonal <- cbind(bitcoin_seasonal,
+                          pred = predict(bitcoin_seasonal_model))
+  bitcoin_seasonal %>%
+    ggplot(aes(x = bitcoin_seasonal, y = pred, group = 1)) +
+    geom_point(color = "red") + 
+    ggtitle("goodness of fit bitcoin seasonal pred vs. actual") +
+    theme(plot.title = element_text(hjust = 0.5))
+  bitcoin_seasonal %>%
+    ggplot(aes(x = day_series, y = bitcoin_seasonal, group = 1)) +
+    geom_line(color = "black") +
+    geom_line(aes(x = day_series, y = pred), color = "red") +
+    ggtitle("bitcoin seasonal & sin/cos fit") +
+    theme(plot.title = element_text(hjust = 0.5))
+#
+# This shows we can adequately model the bitcoin seasonality 
+# with 5 sets of sines/cosines.  The benefit of this approach 
+# is that the model will be self-retraining in the future
+# instead of hard-coding the predicted seasonality, we include
+# the sine/cosine features and the model will refit them
+#
+# Construct 7-day lagged nasdaq close data
+#
+  nasdaq_close_lag_7 <- interp_nasdaq
+  nasdaq_close_lag_7 <- nasdaq_close_lag_7 %>%
+    mutate(Date = Date + 7) %>%
+    filter(Date >= '2018-01-01') %>%
+    select(Date, Close)
+#
+# Construct 32 day lagged nasdaq volume data
+#
+  nasdaq_vol_lag_32 <- interp_nasdaq
+  nasdaq_vol_lag_32 <- nasdaq_vol_lag_32 %>%
+    mutate(Date = Date + 32) %>%
+    filter(Date >= '2018-01-01') %>%
+    select(Date, Volume)
+#
+# Construct an exponential decay model for the bitcon trend
+#
+  day_series <- seq(1, length(bitcoin_time_analysis[["trend"]]), 1)
+  bitcoin_trend <- 
+    as.data.frame(cbind(day_series, trend = bitcoin_time_analysis[["trend"]]))
+  bitcoin_trend <- bitcoin_trend[!(is.na(bitcoin_trend[, "trend"])), ]
+  exp_model <- lm(log(trend) ~ day_series, data = bitcoin_trend)
+  A <- exp(exp_model[["coefficients"]][["(Intercept)"]])
+  B <- exp_model[["coefficients"]][["day_series"]]
+#
+# trend = A * exp(B * day_series)
+#
+  bitcoin_trend %>%
+    ggplot(aes(x = day_series, y = trend)) +
+    geom_point(color = "red") +
+    geom_line(aes(x = day_series, y = A * exp(B * day_series)), 
+              color = "blue") +
+    ggtitle("bitcoin trend and exponential fit") +
+    theme(plot.title = element_text(hjust = 0.5))
+#
+# assemble the training data
+#
+  
 #  
 # select features
 #
@@ -598,16 +866,22 @@
 #
 # scale data
 #
-  centers <- apply(train_data_temp, 2, min)
-  scales <- apply(train_data_temp, 2, max) - centers
-#  centers <- apply(train_data_temp, 2, mean)
-#  scales <- apply(train_data_temp, 2, sd)
+  scale_method <- "0_to_1"
+  # scale_method <- "mean_sd"
+  if (scale_method == "0_to_1") {
+    centers <- apply(train_data_temp, 2, min)
+    scales <- apply(train_data_temp, 2, max) - centers
+  } else if (scale_method == "mean_sd") {
+    centers <- apply(train_data_temp, 2, mean)
+    scales <- apply(train_data_temp, 2, sd)
+  }
   train_data_temp <- scale(train_data_temp,
                            center = centers,
                            scale = scales)
 #
 # set up trials
 #
+  experiment_records_total <- NULL
   experiment_factors <- get_experiment_factors()
 #
 # parameers for dense layers
