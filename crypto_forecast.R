@@ -170,6 +170,189 @@
 #
 #
 #
+  plot_experiment <- function(experiment_record, experiment_factors, 
+                              history) {
+    plot(1, 1, type = "l", axes = FALSE, 
+         cex.lab = 0.01, 
+         main = c(rep("\n", length(experiment_factors) / 2),
+                  paste("Val Data\n\n", 
+                        paste(experiment_factors,
+                              experiment_record[pass - prior_pass, ], 
+                              collapse = "\n"))),
+         cex.main = 0.5,
+         font.main = 1)
+    par(mar = c(5, 4, 4, 4) + 0.1)
+    ylim_1 <- 
+      c(max(0, 0.9 * min(min(history[["metrics"]][["loss"]]),
+                         min(history[["metrics"]][["val_loss"]]))),
+        1.1 * max(max(history[["metrics"]][["loss"]]),
+                  max(history[["metrics"]][["val_loss"]])))
+    ylim_1 <- 
+      c(floor(10 * ylim_1[1]) / 10,
+        round(10 * ylim_1[2] / 10, 1))
+    plot(history[["metrics"]][["val_loss"]],
+         type = "l",
+         col = "blue",
+         lwd = 0.5,
+         yaxt = "n",
+         ylab = "",
+         ylim = ylim_1,
+         xaxt = "n",
+         xlab = "epoch")
+    axis(side = 1, 
+         at = seq(1, 
+                  length(history[["metrics"]][["val_loss"]]), 
+                  1))
+    axis(side = 4)
+    lines(history[["metrics"]][["loss"]],
+          type = "l",
+          col = "darkgreen",
+          lwd = 0.5)
+    par(new = T)
+    ylim_2 <- 
+      c(max(0, 0.9 * min(min(history[["metrics"]][["mean_absolute_error"]]),
+                         min(history[["metrics"]][["val_mean_absolute_error"]]))),
+        1.1 * max(max(history[["metrics"]][["mean_absolute_error"]]),
+                  max(history[["metrics"]][["val_mean_absolute_error"]])))
+    ylim_2 <- 
+      c(floor(10 * ylim_2[1]) / 10,
+        round(10 * ylim_2[2] / 10, 1))
+    plot(history[["metrics"]][["val_mean_absolute_error"]],
+         type = "l",
+         col = "red",
+         lwd = 0.5,
+         ylim = ylim_2,
+         ylab = "",
+         xaxt = "n",
+         xlab = "")
+    grid(lty = 1, lwd = 0.5)
+    lines(c(history[["metrics"]][["mean_absolute_error"]]),
+          col = "purple",
+          lwd = 0.5)
+    mtext(side = 4, 
+          line = 2.5, 
+          at = (ylim_2[1] + ylim_2[2]) / 2 - 
+            0.09 * (ylim_2[2] - ylim_2[1]), 
+          "val", col = "blue")
+    mtext(side = 4, 
+          line = 2.5, 
+          at = (ylim_2[1] + ylim_2[2]) / 2 + 
+            0.08 * (ylim_2[2] - ylim_2[1]),
+          "     / train loss (mse)", 
+          col = "darkgreen")
+    mtext(side = 2, 
+          line = 2.5, 
+          at = (ylim_2[1] + ylim_2[2]) / 2 - 
+            0.07 * (ylim_2[2] - ylim_2[1]),
+          "train", 
+          col = "purple")
+    mtext(side = 2, 
+          line = 2.5,
+          at = (ylim_2[1] + ylim_2[2]) / 2 + 
+            0.07 * (ylim_2[2] - ylim_2[1]),
+          "     / val MAE", 
+          col = "red")
+  }
+#
+#  
+#
+#
+# end function plot_experiment
+#
+#  
+#
+#  
+  plot_results <- function(x_train, x_val, x_test, 
+                           test_data, train_data_temp,
+                           scales, centers,
+                           model) {
+    x_summary <- 
+      rbind(cbind(x_train, data_src = rep("train", nrow(x_train))),
+            cbind(x_val, data_src = rep("val", nrow(x_val))),
+            cbind(x_test, data_src = rep("test", nrow(x_test))))
+    x_summary <- 
+      as.matrix(x_summary[order(x_summary[, "Date"], 
+                                decreasing = FALSE), ])
+    summary_predictions <- 
+      data.frame(pred = predict(model, x_summary[, 1:(ncol(x_summary) - 1)]))
+    pred_summary <- as.data.frame(cbind(x_summary, summary_predictions))
+    targets <- rbind(train_data_temp, test_data)[, "Close"]
+    pred_summary <- as.data.frame(cbind(pred_summary, actual = targets))
+#                      
+# scale the values for plotting
+#                      
+    pred_summary[, "Date"] <- 
+      as.numeric(as.character(pred_summary[, "Date"]))
+    pred_summary[, "pred"] <-
+      as.numeric(as.character(pred_summary[, "pred"]))
+    pred_summary[, "actual"] <-
+      as.numeric(as.character(pred_summary[, "actual"]))
+    for (i in 1:nrow(pred_summary)) {
+      pred_summary[i, "Date"] <- 
+        as.numeric(pred_summary[i, "Date"]) *
+        scales["Date"] + centers["Date"]
+      pred_summary[i, "pred"] <- 
+        as.numeric(pred_summary[i, "pred"]) *
+        scales["Close"] + centers["Close"]
+      pred_summary[i, "actual"] <- 
+        as.numeric(pred_summary[i, "actual"]) *
+        scales["Close"] + centers["Close"]
+    }
+    pred_summary[, "Date"] <-
+      as.Date(pred_summary[, "Date"], origin = '1970-01-01')
+#
+# summary stats to add to the plot
+#                      
+    test_MAE <- 
+      get_metrics(pred_summary[pred_summary[, "data_src"] == "test",
+                               "pred"],
+                  pred_summary[pred_summary[, "data_src"] == "test",
+                               "actual"])[["MAE"]]
+    test_MAPE <- 100 * test_MAE /
+      mean(pred_summary[pred_summary[, "data_src"] == "test", "actual"])
+    label_x <- 
+      min(as.numeric(pred_summary[, "Date"])) / 2 + 
+      max(as.numeric(pred_summary[, "Date"])) / 2 
+    label_x <- as.Date(label_x, origin = '1970-01-01')
+    label_y <- min(pred_summary[, "actual"]) + 
+      0.75 * (max(pred_summary[, "actual"]) - 
+                min(pred_summary[, "actual"]))
+    MAPE_label <- round(test_MAPE, 2)
+    MAE_label <- round(test_MAE, 0)
+#
+# visualize predictions
+#                      
+    pred_plot <- pred_summary %>%
+      ggplot(aes(x = Date, y = actual, color = data_src)) +
+      geom_point() +
+      geom_line(aes(x = Date, y = pred, group = 1)) +
+      scale_x_date(date_labels = "%Y-%m-%d") +
+      xlab("") +
+      ylab("Bitcoin closing price") +
+      scale_y_continuous(labels = dollar) +
+      annotate(geom = "text", 
+               x = label_x, y = label_y,
+               label = paste0("mean % error (test) = ",
+                              MAPE_label,
+                              " %"),
+               hjust = 0) +
+      annotate(geom = "text", 
+               x = label_x, y = label_y - 500,
+               label = paste0("mean error (test) = ",
+                              MAE_label),
+               hjust = 0) 
+    print(pred_plot)
+    return(pred_summary)
+  }
+#
+#  
+#
+#
+# end function plot_results
+#
+#  
+#
+#  
   get_peak <- function(history, metric, smoothing = 3, 
                        direction = "max") {
     history_smooth <-
@@ -858,7 +1041,7 @@
 # scale data
 #
   scale_method <- "0_to_1"
-  # scale_method <- "mean_sd"
+# scale_method <- "mean_sd"
   if (scale_method == "0_to_1") {
     centers <- apply(train_data_temp, 2, min, na.rm = TRUE)
     scales <- apply(train_data_temp, 2, max, na.rm = TRUE) - centers
@@ -1027,15 +1210,15 @@
 #
 # initialize/configure for run
 #
-  replicates <- 50
+  replicates <- 10
   pass <- 0
   prior_pass <- 0
   load_model <- TRUE
   model_file <- "2018-09-07-20-19-1536373150_crypto_fcst_model.hdf5"
   decode_current_model <- TRUE
-  boxplots <- TRUE
+  boxplots <- FALSE
   save_results_fine <- FALSE
-  save_results_summary <- TRUE
+  save_results_summary <- FALSE
 #
 # only sgd and RMSprop are available at present
 #
@@ -1046,7 +1229,7 @@
     paste0("optimized model using lagged nasdaq and bitcoin with sin-cos periodic features", 
            paste0(unique(activations), " "), "activations")
 #
-# construct a test set from the last 7 days of data
+# construct a test set from the last "forecast interval" days of data
 #
   test_split <- forecast_interval / nrow(train_data_temp)
   test_indices <- seq(floor(nrow(train_data_temp) * (1 - test_split)),
@@ -1102,20 +1285,27 @@
 #
                       input_data <- list(x_train)      
 #                      
+# if we are using a saved model for prediction or validation, load it
+#                      
                       if (load_model) {
                         model <- load_model_hdf5(model_file, 
                                                  custom_objects = NULL, 
                                                  compile = TRUE)
                       } else {
+#
+# otherwise, build and train a new model
+#
                         numerical_in <- 
                           layer_input(shape = ncol(x_train),
                                       name = "input_numerical")
 #              
-# combine the input layers (note: for future use if we add categoriical data)
+# combine the input layers 
+# note: for future use if we add categoriical data
+# combined_inputs is identical to numerical_in at present
+# otherwise the next statement would concatenate
 # 
                         combined_inputs <-
                           numerical_in
-#                        layer_concatenate(c(numerical_in))
 #
 # define first layer
 #                      
@@ -1213,86 +1403,17 @@
                         predict(model, list(x_val))
                       val_metrics <- get_metrics(val_predictions, y_val)
                       val_MAE <- val_metrics[[1]]
+                      experiment_record[pass - prior_pass, ]$val_MAE <-
+                        val_MAE
 #
                       test_predictions <- 
                         predict(model, list(x_test))
+                      test_MAE <- get_metrics(test_predictions, y_test)
 #
-                      x_summary <- 
-                        rbind(cbind(x_train, data_src = rep("train", nrow(x_train))),
-                              cbind(x_val, data_src = rep("val", nrow(x_val))),
-                              cbind(x_test, data_src = rep("test", nrow(x_test))))
-                      x_summary <- 
-                        as.matrix(x_summary[order(x_summary[, "Date"], 
-                                                  decreasing = FALSE), ])
-                      summary_predictions <- 
-                        data.frame(pred = predict(model, x_summary[, 1:(ncol(x_summary) - 1)]))
-                      pred_summary <- as.data.frame(cbind(x_summary, summary_predictions))
-                      targets <- rbind(train_data_temp, test_data)[, "Close"]
-                      pred_summary <- as.data.frame(cbind(pred_summary, actual = targets))
-#                      
-# scale the values for plotting
-#                      
-                      pred_summary[, "Date"] <- 
-                        as.numeric(as.character(pred_summary[, "Date"]))
-                      pred_summary[, "pred"] <-
-                        as.numeric(as.character(pred_summary[, "pred"]))
-                      pred_summary[, "actual"] <-
-                        as.numeric(as.character(pred_summary[, "actual"]))
-                      for (i in 1:nrow(pred_summary)) {
-                        pred_summary[i, "Date"] <- 
-                          as.numeric(pred_summary[i, "Date"]) *
-                          scales["Date"] + centers["Date"]
-                        pred_summary[i, "pred"] <- 
-                          as.numeric(pred_summary[i, "pred"]) *
-                          scales["Close"] + centers["Close"]
-                        pred_summary[i, "actual"] <- 
-                          as.numeric(pred_summary[i, "actual"]) *
-                          scales["Close"] + centers["Close"]
-                      }
-                      pred_summary[, "Date"] <-
-                        as.Date(pred_summary[, "Date"], origin = '1970-01-01')
-#
-# summary stats to add to the plot
-#                      
-                      test_MAE <- 
-                        get_metrics(pred_summary[pred_summary[, "data_src"] == "test",
-                                                 "pred"],
-                                    pred_summary[pred_summary[, "data_src"] == "test",
-                                                 "actual"])[["MAE"]]
-                      test_MAPE <- 100 * test_MAE /
-                        mean(pred_summary[pred_summary[, "data_src"] == "test", "actual"])
-                      label_x <- 
-                        min(as.numeric(pred_summary[, "Date"])) / 2 + 
-                        max(as.numeric(pred_summary[, "Date"])) / 2 
-                      label_x <- as.Date(label_x, origin = '1970-01-01')
-                      label_y <- min(pred_summary[, "actual"]) + 
-                        0.75 * (max(pred_summary[, "actual"]) - 
-                                  min(pred_summary[, "actual"]))
-                      MAPE_label <- round(test_MAPE, 2)
-                      MAE_label <- round(test_MAE, 0)
-#
-# visualize predictions
-#                      
-                      pred_plot <- pred_summary %>%
-                        ggplot(aes(x = Date, y = actual, color = data_src)) +
-                        geom_point() +
-                        geom_line(aes(x = Date, y = pred, group = 1)) +
-                        scale_x_date(date_labels = "%Y-%m-%d") +
-                        xlab("") +
-                        ylab("Bitcoin closing price") +
-                        scale_y_continuous(labels = dollar) +
-                        annotate(geom = "text", 
-                                 x = label_x, y = label_y,
-                                 label = paste0("mean % error (test) = ",
-                                                MAPE_label,
-                                                " %"),
-                                 hjust = 0) +
-                        annotate(geom = "text", 
-                                 x = label_x, y = label_y - 500,
-                                 label = paste0("mean error (test) = ",
-                                                MAE_label),
-                                 hjust = 0) 
-                      print(pred_plot)
+                      plot_results(x_train, x_val, x_test, 
+                                   test_data, train_data_temp,
+                                   scales, centers,
+                                   model)
 #
 # save the predictions for the test data
 #
@@ -1317,16 +1438,7 @@
                       mod_params <- converted_model[[4]]
                       layer_types <- converted_model[[5]]
 #
-# find best epoch (so we can use later for retraining to optimum)
-#                    
-                      if (!(load_model)) {
-                        best_epoch_val <- get_peak(history, 
-                                                   "val_mean_absolute_error",
-                                                   smoothing = 3,
-                                                   direction = "min")
-#                      
-                        max_epoch <- length(history[["metrics"]][["loss"]])
-                      }
+# save results & visualize
 #
                       experiment_record[pass - prior_pass, ]$date <-
                         run_date
@@ -1371,7 +1483,15 @@
                         batch_sizes_used[batch_size_index]
                       experiment_record[pass - prior_pass, ]$train_val_split <-
                         train_val_split
+#
+# find best epoch (so we can use later for retraining to optimum)
+#                    
                       if (!(load_model)) {
+                        best_epoch_val <- get_peak(history, 
+                                                   "val_mean_absolute_error",
+                                                   smoothing = 3,
+                                                   direction = "min")
+                        max_epoch <- length(history[["metrics"]][["loss"]])
                         experiment_record[pass - prior_pass, ]$train_MAE <-
                           history[["metrics"]][["mean_absolute_error"]][max_epoch]
                         experiment_record[pass - prior_pass, ]$train_MAE_at_best_val <-
@@ -1382,93 +1502,9 @@
                           best_epoch_val
                         experiment_record[pass - prior_pass, ]$best_MAE_val <-
                           history[["metrics"]][["val_mean_absolute_error"]][best_epoch_val]
-                      } else {
-                        experiment_record[pass - prior_pass, ]$val_MAE <-
-                          val_MAE
-                      }
-                      experiment_record[pass - prior_pass, ]$test_MAE <-
-                        test_MAE
-                      if (!(load_model)) {
-                        plot(1, 1, type = "l", axes = FALSE, 
-                             cex.lab = 0.01, 
-                             main = c(rep("\n", length(experiment_factors) / 2),
-                                      paste("Val Data\n\n", 
-                                            paste(experiment_factors,
-                                                  experiment_record[pass - prior_pass, ], 
-                                                  collapse = "\n"))),
-                             cex.main = 0.5,
-                             font.main = 1)
-                        par(mar = c(5, 4, 4, 4) + 0.1)
-                        ylim_1 <- 
-                          c(max(0, 0.9 * min(min(history[["metrics"]][["loss"]]),
-                                             min(history[["metrics"]][["val_loss"]]))),
-                            1.1 * max(max(history[["metrics"]][["loss"]]),
-                                      max(history[["metrics"]][["val_loss"]])))
-                        ylim_1 <- 
-                          c(floor(10 * ylim_1[1]) / 10,
-                            round(10 * ylim_1[2] / 10, 1))
-                        plot(history[["metrics"]][["val_loss"]],
-                             type = "l",
-                             col = "blue",
-                             lwd = 0.5,
-                             yaxt = "n",
-                             ylab = "",
-                             ylim = ylim_1,
-                             xaxt = "n",
-                             xlab = "epoch")
-                        axis(side = 1, 
-                             at = seq(1, 
-                                      length(history[["metrics"]][["val_loss"]]), 
-                                      1))
-                        axis(side = 4)
-                        lines(history[["metrics"]][["loss"]],
-                              type = "l",
-                              col = "darkgreen",
-                              lwd = 0.5)
-                        par(new = T)
-                        ylim_2 <- 
-                          c(max(0, 0.9 * min(min(history[["metrics"]][["mean_absolute_error"]]),
-                                             min(history[["metrics"]][["val_mean_absolute_error"]]))),
-                            1.1 * max(max(history[["metrics"]][["mean_absolute_error"]]),
-                                      max(history[["metrics"]][["val_mean_absolute_error"]])))
-                        ylim_2 <- 
-                          c(floor(10 * ylim_2[1]) / 10,
-                            round(10 * ylim_2[2] / 10, 1))
-                        plot(history[["metrics"]][["val_mean_absolute_error"]],
-                             type = "l",
-                             col = "red",
-                             lwd = 0.5,
-                             ylim = ylim_2,
-                             ylab = "",
-                             xaxt = "n",
-                             xlab = "")
-                        grid(lty = 1, lwd = 0.5)
-                        lines(c(history[["metrics"]][["mean_absolute_error"]]),
-                              col = "purple",
-                              lwd = 0.5)
-                        mtext(side = 4, 
-                              line = 2.5, 
-                              at = (ylim_2[1] + ylim_2[2]) / 2 - 
-                                0.09 * (ylim_2[2] - ylim_2[1]), 
-                              "val", col = "blue")
-                        mtext(side = 4, 
-                              line = 2.5, 
-                              at = (ylim_2[1] + ylim_2[2]) / 2 + 
-                                0.08 * (ylim_2[2] - ylim_2[1]),
-                              "     / train loss (mse)", 
-                              col = "darkgreen")
-                        mtext(side = 2, 
-                              line = 2.5, 
-                              at = (ylim_2[1] + ylim_2[2]) / 2 - 
-                                0.07 * (ylim_2[2] - ylim_2[1]),
-                              "train", 
-                              col = "purple")
-                        mtext(side = 2, 
-                              line = 2.5,
-                              at = (ylim_2[1] + ylim_2[2]) / 2 + 
-                                0.07 * (ylim_2[2] - ylim_2[1]),
-                              "     / val MAE", 
-                              col = "red")
+                        plot_experiment(experiment_record,
+                                        experiment_factors,
+                                        history)
                       }
                     }
                   }
@@ -1485,6 +1521,10 @@
                   experiment_records <- rbind(experiment_records,
                                               experiment_record)
                 }
+#                
+# if we built a new model, then save the first one, and replace it
+# anytime we get a better val result, so we end wiht the best model
+#
                 if (!(load_model)) {
                   if (pass == 0) {
                     save_model_hdf5(model, 
@@ -1493,7 +1533,7 @@
                                     overwrite = TRUE,
                                     include_optimizer = TRUE)
                   } else {
-                    if (experiment_records[, "val_MAE"] <=
+                    if (val_MAE <=
                         min(experiment_records[, "val_MAE"])) {
                       save_model_hdf5(model, 
                                       paste0(time_stamp, 
@@ -1540,9 +1580,10 @@
                     exclude_below = test_cutoff, 
                     par_list)
   }
+#
+# reset the output device if we directed to pdf
+#
   if (pdf_plots) {
     while (!is.null(dev.list())) {dev.off()}
   }
 #
-  show_summary(par_list = par_list, experiment_records = experiment_records)
-  
