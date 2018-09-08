@@ -997,7 +997,7 @@
 #
 # determine if plots go to pdf
 #
-  pdf_plots <- TRUE
+  pdf_plots <- FALSE
   if (pdf_plots) {
     pdf(file = paste0(time_stamp, "_crypto_nn_charts.pdf"), 
         onefile = TRUE)
@@ -1027,7 +1027,7 @@
 #
 # initialize/configure for run
 #
-  replicates <- 10
+  replicates <- 50
   pass <- 0
   prior_pass <- 0
   load_model <- TRUE
@@ -1048,7 +1048,7 @@
 #
 # construct a test set from the last 7 days of data
 #
-  test_split <- 7 / nrow(train_data_temp)
+  test_split <- forecast_interval / nrow(train_data_temp)
   test_indices <- seq(floor(nrow(train_data_temp) * (1 - test_split)),
                       nrow(train_data_temp), 1)
   test_data <- train_data_temp[test_indices, ]
@@ -1079,7 +1079,7 @@
                         sample(1:nrow(train_data_temp),
                                train_val_split * nrow(train_data_temp))
                       val_data <- train_data_temp[- train_indices, - target_col]
-                      train_data <- 
+                      train_tmp <- 
                         train_data_temp[train_indices, - target_col]
                       pass <- pass + 1
 #  
@@ -1088,7 +1088,7 @@
 # back to matrix form
 #
                       x_train <- 
-                        as.matrix(train_data)
+                        as.matrix(train_tmp)
                       x_test <- 
                         as.matrix(test_data[, -target_col])
                       x_val <- 
